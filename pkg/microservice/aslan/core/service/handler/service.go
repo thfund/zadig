@@ -27,12 +27,12 @@ import (
 
 	commonmodels "github.com/koderover/zadig/pkg/microservice/aslan/core/common/repository/models"
 	commonservice "github.com/koderover/zadig/pkg/microservice/aslan/core/common/service"
+	"github.com/koderover/zadig/pkg/microservice/aslan/core/service/service"
 	svcservice "github.com/koderover/zadig/pkg/microservice/aslan/core/service/service"
 	"github.com/koderover/zadig/pkg/setting"
 	internalhandler "github.com/koderover/zadig/pkg/shared/handler"
 	e "github.com/koderover/zadig/pkg/tool/errors"
 	"github.com/koderover/zadig/pkg/tool/log"
-	"github.com/koderover/zadig/pkg/types/permission"
 )
 
 func ListServiceTemplate(c *gin.Context) {
@@ -82,7 +82,7 @@ func CreateServiceTemplate(c *gin.Context) {
 	if err = json.Unmarshal(data, args); err != nil {
 		log.Errorf("CreateServiceTemplate json.Unmarshal err : %v", err)
 	}
-	internalhandler.InsertOperationLog(c, ctx.Username, args.ProductName, "新增", "工程管理-服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceName, args.Revision), permission.ServiceTemplateManageUUID, string(data), ctx.Logger)
+	internalhandler.InsertOperationLog(c, ctx.Username, args.ProductName, "新增", "项目管理-服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceName, args.Revision), string(data), ctx.Logger)
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 
 	if err := c.BindJSON(args); err != nil {
@@ -107,7 +107,7 @@ func UpdateServiceTemplate(c *gin.Context) {
 		log.Errorf("UpdateServiceTemplate json.Unmarshal err : %v", err)
 	}
 	if args.Username != "system" {
-		internalhandler.InsertOperationLog(c, ctx.Username, args.ProductName, "更新", "工程管理-服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceName, args.Revision), permission.ServiceTemplateManageUUID, "", ctx.Logger)
+		internalhandler.InsertOperationLog(c, ctx.Username, args.ProductName, "更新", "项目管理-服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceName, args.Revision), "", ctx.Logger)
 	}
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 	args.Username = ctx.Username
@@ -129,11 +129,8 @@ func YamlValidator(c *gin.Context) {
 	}
 	resp := make([]*ValidatorResp, 0)
 	errMsgList := svcservice.YamlValidator(args)
-	if len(errMsgList) > 0 {
-		ctx.Logger.Errorf("svcservice.YamlValidator err : %v", errMsgList)
-		resp = append(resp, &ValidatorResp{
-			Message: "Invalid yaml format. The content must be a series of valid Kubernetes resources",
-		})
+	for _, errMsg := range errMsgList {
+		resp = append(resp, &ValidatorResp{Message: errMsg})
 	}
 	ctx.Resp = resp
 }
@@ -142,7 +139,7 @@ func DeleteServiceTemplate(c *gin.Context) {
 	ctx := internalhandler.NewContext(c)
 	defer func() { internalhandler.JSONResponse(c, ctx) }()
 
-	internalhandler.InsertOperationLog(c, ctx.Username, c.Query("productName"), "删除", "工程管理-服务", c.Param("name"), permission.ServiceTemplateDeleteUUID, "", ctx.Logger)
+	internalhandler.InsertOperationLog(c, ctx.Username, c.Query("productName"), "删除", "项目管理-服务", c.Param("name"), "", ctx.Logger)
 
 	ctx.Err = svcservice.DeleteServiceTemplate(c.Param("name"), c.Param("type"), c.Query("productName"), c.DefaultQuery("isEnvTemplate", "true"), c.DefaultQuery("visibility", "public"), ctx.Logger)
 }
@@ -164,6 +161,24 @@ type K8sWorkloadsArgs struct {
 	ClusterID   string                  `bson:"cluster_id"       json:"cluster_id"`
 	Namespace   string                  `bson:"namespace"        json:"namespace"`
 	ProductName string                  `bson:"product_name"     json:"product_name"`
+}
+
+func UpdateWorkloads(c *gin.Context) {
+	ctx := internalhandler.NewContext(c)
+	defer func() { internalhandler.JSONResponse(c, ctx) }()
+	args := new(service.UpdateWorkloadsArgs)
+	err := c.ShouldBindJSON(args)
+	if err != nil {
+		ctx.Err = e.ErrInvalidParam.AddDesc("invalid UpdateWorkloadsArgs")
+		return
+	}
+	product := c.Query("productName")
+	env := c.Query("env")
+	if product == "" || env == "" {
+		ctx.Err = e.ErrInvalidParam
+		return
+	}
+	ctx.Err = service.UpdateWorkloads(c, ctx.RequestID, ctx.Username, product, env, *args, ctx.Logger)
 }
 
 func CreateK8sWorkloads(c *gin.Context) {
@@ -228,7 +243,7 @@ func CreatePMService(c *gin.Context) {
 	if err = json.Unmarshal(data, args); err != nil {
 		log.Errorf("CreatePMService json.Unmarshal err : %v", err)
 	}
-	internalhandler.InsertOperationLog(c, ctx.Username, c.Param("productName"), "新增", "工程管理-物理机部署服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceTmplObject.ServiceName, args.ServiceTmplObject.Revision), permission.ServiceTemplateManageUUID, string(data), ctx.Logger)
+	internalhandler.InsertOperationLog(c, ctx.Username, c.Param("productName"), "新增", "项目管理-物理机部署服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceTmplObject.ServiceName, args.ServiceTmplObject.Revision), string(data), ctx.Logger)
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 
 	if err := c.BindJSON(args); err != nil {
@@ -280,7 +295,7 @@ func UpdatePmServiceTemplate(c *gin.Context) {
 	if err = json.Unmarshal(data, args); err != nil {
 		log.Errorf("UpdatePmServiceTemplate json.Unmarshal err : %v", err)
 	}
-	internalhandler.InsertOperationLog(c, ctx.Username, c.Param("productName"), "更新", "工程管理-非容器服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceTmplObject.ServiceName, args.ServiceTmplObject.Revision), permission.ServiceTemplateManageUUID, "", ctx.Logger)
+	internalhandler.InsertOperationLog(c, ctx.Username, c.Param("productName"), "更新", "项目管理-主机服务", fmt.Sprintf("服务名称:%s,版本号:%d", args.ServiceTmplObject.ServiceName, args.ServiceTmplObject.Revision), "", ctx.Logger)
 	c.Request.Body = ioutil.NopCloser(bytes.NewBuffer(data))
 
 	for _, heathCheck := range args.ServiceTmplObject.HealthChecks {

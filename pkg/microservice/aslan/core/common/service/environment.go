@@ -36,6 +36,7 @@ import (
 	"github.com/koderover/zadig/pkg/shared/kube/wrapper"
 	e "github.com/koderover/zadig/pkg/tool/errors"
 	"github.com/koderover/zadig/pkg/tool/kube/getter"
+	"github.com/koderover/zadig/pkg/util"
 	jsonutil "github.com/koderover/zadig/pkg/util/json"
 )
 
@@ -69,20 +70,30 @@ func FillProductTemplateValuesYamls(tmpl *templatemodels.Product, log *zap.Sugar
 
 // 产品列表页服务Response
 type ServiceResp struct {
-	ServiceName  string              `json:"service_name"`
-	Type         string              `json:"type"`
-	Status       string              `json:"status"`
-	Images       []string            `json:"images,omitempty"`
-	ProductName  string              `json:"product_name"`
-	EnvName      string              `json:"env_name"`
-	Ingress      *IngressInfo        `json:"ingress"`
-	Ready        string              `json:"ready"`
-	EnvStatuses  []*models.EnvStatus `json:"env_statuses,omitempty"`
-	WorkLoadType string              `json:"workLoadType"`
+	ServiceName        string              `json:"service_name"`
+	ServiceDisplayName string              `json:"service_display_name"`
+	Type               string              `json:"type"`
+	Status             string              `json:"status"`
+	Images             []string            `json:"images,omitempty"`
+	ProductName        string              `json:"product_name"`
+	EnvName            string              `json:"env_name"`
+	Ingress            *IngressInfo        `json:"ingress"`
+	Ready              string              `json:"ready"`
+	EnvStatuses        []*models.EnvStatus `json:"env_statuses,omitempty"`
+	WorkLoadType       string              `json:"workLoadType"`
 }
 
 type IngressInfo struct {
 	HostInfo []resource.HostInfo `json:"host_info"`
+}
+
+// fill service display name if necessary
+func fillServiceDisplayName(svcList []*ServiceResp, productInfo *models.Product) {
+	if productInfo.Source == setting.SourceFromHelm {
+		for _, svc := range svcList {
+			svc.ServiceDisplayName = util.ExtraServiceName(svc.ServiceName, productInfo.Namespace)
+		}
+	}
 }
 
 // ListWorkloadsInEnv returns all workloads in the given env which meat the filter.
@@ -156,8 +167,12 @@ func ListWorkloadsInEnv(envName, productName, filter string, perPage, page int, 
 		})
 	}
 
-	return ListWorkloads(envName, productInfo.ClusterID, productInfo.Namespace, productName, perPage, page, log, filterArray...)
-
+	count, resp, err := ListWorkloads(envName, productInfo.ClusterID, productInfo.Namespace, productName, perPage, page, log, filterArray...)
+	if err != nil {
+		return count, resp, err
+	}
+	fillServiceDisplayName(resp, productInfo)
+	return count, resp, nil
 }
 
 type FilterFunc func(services []*Workload) []*Workload
@@ -197,7 +212,7 @@ func ListWorkloads(envName, clusterID, namespace, productName string, perPage, p
 		return 0, resp, e.ErrListGroups.AddDesc(err.Error())
 	}
 	for _, v := range listDeployments {
-		workLoads = append(workLoads, &Workload{Name: v.Name, Spec: corev1.ServiceSpec{Selector: v.Spec.Selector.MatchLabels}, Type: setting.Deployment, Images: wrapper.Deployment(v).Images(), Ready: wrapper.Deployment(v).Ready()})
+		workLoads = append(workLoads, &Workload{Name: v.Name, Spec: corev1.ServiceSpec{Selector: v.Spec.Selector.MatchLabels}, Type: setting.Deployment, Images: wrapper.Deployment(v).ImageInfos(), Ready: wrapper.Deployment(v).Ready()})
 	}
 	statefulSets, err := getter.ListStatefulSets(namespace, nil, kubeClient)
 	if err != nil {
@@ -205,7 +220,7 @@ func ListWorkloads(envName, clusterID, namespace, productName string, perPage, p
 		return 0, resp, e.ErrListGroups.AddDesc(err.Error())
 	}
 	for _, v := range statefulSets {
-		workLoads = append(workLoads, &Workload{Name: v.Name, Spec: corev1.ServiceSpec{Selector: v.Spec.Selector.MatchLabels}, Type: setting.StatefulSet, Images: wrapper.StatefulSet(v).Images(), Ready: wrapper.StatefulSet(v).Ready()})
+		workLoads = append(workLoads, &Workload{Name: v.Name, Spec: corev1.ServiceSpec{Selector: v.Spec.Selector.MatchLabels}, Type: setting.StatefulSet, Images: wrapper.StatefulSet(v).ImageInfos(), Ready: wrapper.StatefulSet(v).Ready()})
 	}
 
 	log.Debugf("Found %d workloads in total", len(workLoads))
